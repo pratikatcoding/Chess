@@ -617,7 +617,7 @@
             if (!piece) return [];
             
             const color = isWhitePiece(piece) ? 'white' : 'black';
-            const moves = getRawMovesForPiece(row, col, board);
+            const moves = getRawMovesForPiece(row, col, board, kings);
             
             return moves.filter(move => {
                 const { tempBoard, tempKings } = simulateMove(board, kings, {row, col}, move);
@@ -641,7 +641,7 @@
             return allMoves;
         }
         
-        function getRawMovesForPiece(row, col, board) {
+        function getRawMovesForPiece(row, col, board, kings) {
             const piece = board[row][col];
             const moves = [];
             const color = isWhitePiece(piece) ? 'white' : 'black';
@@ -665,8 +665,8 @@
                 case 'N': [[2,1],[2,-1],[-2,1],[-2,-1],[1,2],[1,-2],[-1,2],[-1,-2]].forEach(o => addMove(row+o[0], col+o[1])); break;
                 case 'K':
                     [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]].forEach(o => addMove(row+o[0], col+o[1]));
-                    if (castlingRightsWorker[color].K && !board[row][col+1] && !board[row][col+2] && !isKingInCheck(color, board) && !isSquareUnderAttack({row,col:col+1},getOpponentColor(color),board) && !isSquareUnderAttack({row,col:col+2},getOpponentColor(color),board)) moves.push({row, col: col + 2});
-                    if (castlingRightsWorker[color].Q && !board[row][col-1] && !board[row][col-2] && !board[row][col-3] && !isKingInCheck(color, board) && !isSquareUnderAttack({row,col:col-1},getOpponentColor(color),board) && !isSquareUnderAttack({row,col:col-2},getOpponentColor(color),board)) moves.push({row, col: col - 2});
+                    if (castlingRightsWorker[color].K && !board[row][col+1] && !board[row][col+2] && !isKingInCheck(color, board, kings) && !isSquareUnderAttack({row,col:col+1},getOpponentColor(color),board, kings) && !isSquareUnderAttack({row,col:col+2},getOpponentColor(color),board, kings)) moves.push({row, col: col + 2});
+                    if (castlingRightsWorker[color].Q && !board[row][col-1] && !board[row][col-2] && !board[row][col-3] && !isKingInCheck(color, board, kings) && !isSquareUnderAttack({row,col:col-1},getOpponentColor(color),board, kings) && !isSquareUnderAttack({row,col:col-2},getOpponentColor(color),board, kings)) moves.push({row, col: col - 2});
                     break;
                 case 'R': case 'B': case 'Q':
                     const dirs = {'R':[[1,0],[-1,0],[0,1],[0,-1]],'B':[[1,1],[1,-1],[-1,1],[-1,-1]],'Q':[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]}[piece.toUpperCase()];
@@ -694,7 +694,7 @@
                 for (let c = 0; c < 8; c++) {
                     const piece = board[r][c];
                     if (piece && (isWhitePiece(piece) ? 'white' : 'black') === attackerColor) {
-                        const moves = getRawMovesForPiece(r, c, board);
+                        const moves = getRawMovesForPiece(r, c, board, kings);
                         if (moves.some(move => move.row === position.row && move.col === position.col)) {
                             return true;
                         }
@@ -770,11 +770,11 @@
         const pieceUnicode = { 'K': '♔', 'Q': '♕', 'R': '♖', 'B': '♗', 'N': '♘', 'P': '♙', 'k': '♚', 'q': '♛', 'r': '♜', 'b': '♝', 'n': '♞', 'p': '♟' };
         const pieceValues = { 'P': 100, 'N': 320, 'B': 330, 'R': 500, 'Q': 900, 'K': 20000 };
         const bots = {
-            'tal': { name: 'Mikhail Tal', depth: 2, rating: 2705, pic: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8c/Mikhail_Tal_1982.jpg/440px-Mikhail_Tal_1982.jpg' },
-            'anand': { name: 'Viswanathan Anand', depth: 3, rating: 2743, pic: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3b/Viswanathan_Anand_at_WCC_2014.jpg/440px-Viswanathan_Anand_at_WCC_2014.jpg' },
-            'nakamura': { name: 'Hikaru Nakamura', depth: 3, rating: 2816, pic: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/73/Hikaru_Nakamura_at_the_2022_Candidates_Tournament.jpg/440px-Hikaru_Nakamura_at_the_2022_Candidates_Tournament.jpg' },
-            'kasparov': { name: 'Garry Kasparov', depth: 4, rating: 2851, pic: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d4/Kasparov_at_the_opening_of_the_2016_Carlsen-Karjakin_match.jpg/440px-Kasparov_at_the_opening_of_the_2016_Carlsen-Karjakin_match.jpg' },
-            'carlsen': { name: 'Magnus Carlsen', depth: 4, rating: 2909, pic: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ec/FIDE_World_Chess_Championship_2018_Carlsen_-_Caruana_11.jpg/440px-FIDE_World_Chess_Championship_2018_Carlsen_-_Caruana_11.jpg' }
+            'tal': { name: 'Mikhail Tal', depth: 2, rating: 1600, pic: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8c/Mikhail_Tal_1982.jpg/440px-Mikhail_Tal_1982.jpg' },
+            'anand': { name: 'Viswanathan Anand', depth: 3, rating: 1800, pic: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3b/Viswanathan_Anand_at_WCC_2014.jpg/440px-Viswanathan_Anand_at_WCC_2014.jpg' },
+            'nakamura': { name: 'Hikaru Nakamura', depth: 3, rating: 1800, pic: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/73/Hikaru_Nakamura_at_the_2022_Candidates_Tournament.jpg/440px-Hikaru_Nakamura_at_the_2022_Candidates_Tournament.jpg' },
+            'kasparov': { name: 'Garry Kasparov', depth: 4, rating: 2000, pic: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d4/Kasparov_at_the_opening_of_the_2016_Carlsen-Karjakin_match.jpg/440px-Kasparov_at_the_opening_of_the_2016_Carlsen-Karjakin_match.jpg' },
+            'carlsen': { name: 'Magnus Carlsen', depth: 4, rating: 2200, pic: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ec/FIDE_World_Chess_Championship_2018_Carlsen_-_Caruana_11.jpg/440px-FIDE_World_Chess_Championship_2018_Carlsen_-_Caruana_11.jpg' }
         };
         const bookMoves = new Set(['e2e4', 'd2d4', 'g1f3', 'c2c4', 'e7e5', 'c7c5', 'e7e6', 'd7d5', 'g8f6']);
 
@@ -833,11 +833,9 @@
         }
 
         // --- Rendering Functions ---
-        function renderBoard() {
+        function createInitialBoardDOM() {
             boardElement.innerHTML = '';
             boardElement.style.transform = playerColor === 'black' ? 'rotate(180deg)' : '';
-
-            const kingInCheckPos = isKingInCheck(currentPlayer) ? kingPositions[currentPlayer] : null;
 
             for (let row = 0; row < 8; row++) {
                 for (let col = 0; col < 8; col++) {
@@ -858,30 +856,54 @@
                         rank.textContent = '87654321'[row];
                         square.appendChild(rank);
                     }
+                    square.addEventListener('click', onSquareClick);
+                    boardElement.appendChild(square);
+                }
+            }
+        }
 
-                    if (kingInCheckPos && kingInCheckPos.row === row && kingInCheckPos.col === col) {
-                        square.classList.add('in-check');
-                    }
+        function renderBoard(fullRender = true) {
+            if (fullRender) {
+                createInitialBoardDOM();
+            }
+            boardElement.style.transform = playerColor === 'black' ? 'rotate(180deg)' : '';
 
+            // Clear pieces and highlights
+            boardElement.querySelectorAll('.piece, .valid-move-indicator, .selected, .in-check').forEach(el => {
+                if(el.classList.contains('piece')) el.remove();
+                else el.classList.remove('selected', 'in-check');
+            });
+            boardElement.querySelectorAll('.valid-move-indicator').forEach(el => el.remove());
+
+
+            const kingInCheckPos = isKingInCheck(currentPlayer) ? kingPositions[currentPlayer] : null;
+
+            for (let row = 0; row < 8; row++) {
+                for (let col = 0; col < 8; col++) {
+                     const square = boardElement.querySelector(`[data-row='${row}'][data-col='${col}']`);
+                     if (!square) continue;
+
+                    // Add piece if it exists
                     const piece = boardState[row][col];
                     if (piece) {
                         const pieceElement = document.createElement('span');
                         pieceElement.classList.add('piece', isWhitePiece(piece) ? 'white' : 'black');
                         pieceElement.textContent = pieceUnicode[piece];
+                        pieceElement.style.transform = playerColor === 'black' ? 'rotate(180deg)' : '';
                         square.appendChild(pieceElement);
                     }
                     
+                    // Add highlights
+                    if (kingInCheckPos && kingInCheckPos.row === row && kingInCheckPos.col === col) {
+                        square.classList.add('in-check');
+                    }
                     if (selectedSquare && selectedSquare.row === row && selectedSquare.col === col) {
                         square.classList.add('selected');
                     }
-
-                    square.querySelectorAll('.piece, .coordinate').forEach(el => el.style.transform = playerColor === 'black' ? 'rotate(180deg)' : '');
-
-                    square.addEventListener('click', onSquareClick);
-                    boardElement.appendChild(square);
                 }
             }
             
+             // Add valid move indicators
             validMoves.forEach(move => {
                 const square = boardElement.querySelector(`[data-row='${move.row}'][data-col='${move.col}']`);
                 if (square) {
@@ -933,7 +955,7 @@
 
         // --- Event Handlers ---
         function onSquareClick(event) {
-            if (currentPlayer !== playerColor) return;
+            if (currentPlayer !== playerColor || boardElement.classList.contains('in-review')) return;
 
             const row = parseInt(event.currentTarget.dataset.row);
             const col = parseInt(event.currentTarget.dataset.col);
@@ -952,7 +974,7 @@
                 validMoves = getValidMovesForPiece(row, col, boardState);
             }
             
-            renderBoard();
+            renderBoard(false); // OPTIMIZED: only update highlights and pieces
         }
         
         // --- Game Logic with Animation ---
@@ -1016,9 +1038,11 @@
                 capturedPieces[isWhitePiece(capturedPiece) ? 'black' : 'white'].push(capturedPiece);
             }
 
+            let specialMoveSquares = []; // For castling redraw
             if (piece.toUpperCase() === 'P' && enPassantTarget && to.row === enPassantTarget.row && to.col === enPassantTarget.col) {
                 const capturedPawnRow = currentPlayer === 'white' ? to.row + 1 : to.row - 1;
                 boardState[capturedPawnRow][enPassantTarget.col] = null;
+                specialMoveSquares.push({row: capturedPawnRow, col: enPassantTarget.col});
             }
             
             boardState[to.row][to.col] = piece;
@@ -1029,6 +1053,8 @@
                 const rookToCol = to.col > from.col ? 5 : 3;
                 boardState[from.row][rookToCol] = boardState[from.row][rookFromCol];
                 boardState[from.row][rookFromCol] = null;
+                specialMoveSquares.push({row: from.row, col: rookFromCol});
+                specialMoveSquares.push({row: from.row, col: rookToCol});
             }
 
             if (piece.toUpperCase() === 'K') {
@@ -1048,7 +1074,6 @@
             
             enPassantTarget = piece.toUpperCase() === 'P' && Math.abs(from.row - to.row) === 2 ? { row: (from.row + to.row) / 2, col: from.col } : null;
             
-            // Store state for review
              gameHistoryForReview.push({ 
                 boardState: JSON.parse(JSON.stringify(boardState)), 
                 kingPositions: JSON.parse(JSON.stringify(kingPositions)),
@@ -1065,6 +1090,12 @@
                 boardState[to.row][to.col] = 'q';
                 gameHistoryForReview[gameHistoryForReview.length - 1].boardState[to.row][to.col] = 'q'; // Update review history
             }
+            
+            // --- OPTIMIZED RENDER ---
+            // Instead of full renderBoard(), just update the affected squares
+            updateSquare(from.row, from.col);
+            updateSquare(to.row, to.col);
+            specialMoveSquares.forEach(sq => updateSquare(sq.row, sq.col));
 
             switchTurn();
         }
@@ -1074,17 +1105,30 @@
             selectedSquare = null;
             validMoves = [];
             
+            // Clear highlights from previous turn
+            boardElement.querySelectorAll('.selected, .valid-move-indicator').forEach(el => {
+                if (el.classList.contains('selected')) el.classList.remove('selected');
+                else el.remove();
+            });
+
+            // Update check status
+            const oldCheck = boardElement.querySelector('.in-check');
+            if (oldCheck) oldCheck.classList.remove('in-check');
+            const kingInCheckPos = isKingInCheck(currentPlayer) ? kingPositions[currentPlayer] : null;
+            if (kingInCheckPos) {
+                const kingSquare = boardElement.querySelector(`[data-row='${kingInCheckPos.row}'][data-col='${kingInCheckPos.col}']`);
+                if (kingSquare) kingSquare.classList.add('in-check');
+            }
+            
             if (isGameOver()) {
                 handleGameOver("checkmate/stalemate");
                 updateStatus();
-                renderBoard();
                 renderCapturedPieces();
                 renderMoveHistory();
                 return;
             }
 
             updateStatus();
-            renderBoard();
             renderCapturedPieces();
             renderMoveHistory();
             
@@ -1105,6 +1149,7 @@
                     boardState[row][col] = choice;
                     gameHistoryForReview[gameHistoryForReview.length - 1].boardState[row][col] = choice; // Update review history
                     promotionModal.classList.add('hidden');
+                    updateSquare(row, col); // OPTIMIZED
                     if (timers.white > 0 || timers.black > 0) startTimer();
                     switchTurn();
                 };
@@ -1125,12 +1170,13 @@
                     castlingRights: castlingRights
                 });
             } else {
-                // Fallback for if worker fails
                 console.warn("AI Worker not available, running on main thread.");
-                const bestMove = findBestMove(currentBot.depth, boardState, kingPositions, currentPlayer); 
-                if (bestMove) {
-                    makeMove(bestMove.from, bestMove.to);
-                }
+                setTimeout(() => { // Simulate async to prevent UI freeze on very slow fallback
+                    const bestMove = findBestMove(currentBot.depth, boardState, kingPositions, currentPlayer); 
+                    if (bestMove) {
+                        makeMove(bestMove.from, bestMove.to);
+                    }
+                }, 50);
             }
         }
         
@@ -1140,7 +1186,7 @@
             if (!piece) return [];
             
             const color = isWhitePiece(piece) ? 'white' : 'black';
-            const moves = getRawMovesForPiece(row, col, board);
+            const moves = getRawMovesForPiece(row, col, board, kings);
             
             return moves.filter(move => {
                 const { tempBoard, tempKings } = simulateMove(board, kings, {row, col}, move);
@@ -1164,7 +1210,7 @@
             return allMoves;
         }
         
-        function getRawMovesForPiece(row, col, board) {
+        function getRawMovesForPiece(row, col, board, kings) {
             const piece = board[row][col];
             const moves = [];
             const color = isWhitePiece(piece) ? 'white' : 'black';
@@ -1188,8 +1234,8 @@
                 case 'N': [[2,1],[2,-1],[-2,1],[-2,-1],[1,2],[1,-2],[-1,2],[-1,-2]].forEach(o => addMove(row+o[0], col+o[1])); break;
                 case 'K':
                     [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]].forEach(o => addMove(row+o[0], col+o[1]));
-                    if (castlingRights[color].K && !board[row][col+1] && !board[row][col+2] && !isKingInCheck(color, board) && !isSquareUnderAttack({row,col:col+1},getOpponentColor(color),board) && !isSquareUnderAttack({row,col:col+2},getOpponentColor(color),board)) moves.push({row, col: col + 2});
-                    if (castlingRights[color].Q && !board[row][col-1] && !board[row][col-2] && !board[row][col-3] && !isKingInCheck(color, board) && !isSquareUnderAttack({row,col:col-1},getOpponentColor(color),board) && !isSquareUnderAttack({row,col:col-2},getOpponentColor(color),board)) moves.push({row, col: col - 2});
+                    if (castlingRights[color].K && !board[row][col+1] && !board[row][col+2] && !isKingInCheck(color, board, kings) && !isSquareUnderAttack({row,col:col+1},getOpponentColor(color),board, kings) && !isSquareUnderAttack({row,col:col+2},getOpponentColor(color),board, kings)) moves.push({row, col: col + 2});
+                    if (castlingRights[color].Q && !board[row][col-1] && !board[row][col-2] && !board[row][col-3] && !isKingInCheck(color, board, kings) && !isSquareUnderAttack({row,col:col-1},getOpponentColor(color),board, kings) && !isSquareUnderAttack({row,col:col-2},getOpponentColor(color),board, kings)) moves.push({row, col: col - 2});
                     break;
                 case 'R': case 'B': case 'Q':
                     const dirs = {'R':[[1,0],[-1,0],[0,1],[0,-1]],'B':[[1,1],[1,-1],[-1,1],[-1,-1]],'Q':[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]}[piece.toUpperCase()];
@@ -1218,7 +1264,7 @@
                 for (let c = 0; c < 8; c++) {
                     const piece = board[r][c];
                     if (piece && (isWhitePiece(piece) ? 'white' : 'black') === attackerColor) {
-                        const moves = getRawMovesForPiece(r, c, board);
+                        const moves = getRawMovesForPiece(r, c, board, kings);
                         if (moves.some(move => move.row === position.row && move.col === position.col)) {
                             return true;
                         }
@@ -1266,11 +1312,7 @@
             const playerScore = result === 'win' ? 1 : result === 'draw' ? 0.5 : 0;
 
             const newPlayerRating = playerRating + K * (playerScore - playerExpected);
-            // Bot rating doesn't change for now, to provide a stable challenge
-            // const newBotRating = opponentRating + K * ((1 - playerScore) - (1-playerExpected));
-
             playerRating = Math.round(newPlayerRating);
-            // botRatings[botId] = Math.round(newBotRating);
 
             saveRatings();
         }
@@ -1294,7 +1336,7 @@
             validMoves = [];
             selectedSquare = null;
             
-            renderBoard();
+            renderBoard(true); // Full render for review mode
             
             reviewMoveNumberElement.textContent = `${reviewIndex} / ${gameHistoryForReview.length - 1}`;
             analyzeAndDisplayMove(reviewIndex);
@@ -1326,7 +1368,6 @@
             const evalAfter = evaluateBoard(currentHistory.boardState, playerColor);
             const delta = evalAfter - evalBefore;
             
-            // This is a simplified analysis, a real one would be much more intensive
             if (delta < -250) {
                  moveAnalysisElement.innerHTML = `<span id="blunder-move">Blunder</span>`;
             } else if (delta < -100) {
@@ -1417,6 +1458,24 @@
             let s = `${currentPlayer.charAt(0).toUpperCase() + currentPlayer.slice(1)}'s Turn`;
             if (isKingInCheck(currentPlayer)) s += " (Check)";
             statusElement.textContent = s;
+        }
+        
+        function updateSquare(row, col) {
+            const square = boardElement.querySelector(`[data-row='${row}'][data-col='${col}']`);
+            if(!square) return;
+
+            // Clear piece
+            const oldPiece = square.querySelector('.piece');
+            if(oldPiece) oldPiece.remove();
+
+            const piece = boardState[row][col];
+            if (piece) {
+                const pieceElement = document.createElement('span');
+                pieceElement.classList.add('piece', isWhitePiece(piece) ? 'white' : 'black');
+                pieceElement.textContent = pieceUnicode[piece];
+                pieceElement.style.transform = playerColor === 'black' ? 'rotate(180deg)' : '';
+                square.appendChild(pieceElement);
+            }
         }
         
         // --- Main Thread AI analysis functions ---
