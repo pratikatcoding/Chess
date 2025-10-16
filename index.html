@@ -110,6 +110,20 @@
             width: clamp(320px, 90vmin, 640px);
             height: clamp(320px, 90vmin, 640px);
         }
+        
+        .timer {
+            position: absolute;
+            background-color: rgba(0,0,0,0.7);
+            color: white;
+            padding: 5px 12px;
+            border-radius: 4px;
+            font-size: 1.2em;
+            font-weight: bold;
+            z-index: 5;
+        }
+        #bot-timer { top: -40px; right: 0; }
+        #player-timer { bottom: -40px; right: 0; }
+
 
         #chessboard {
             display: grid;
@@ -280,7 +294,7 @@
         .captured-pieces span { font-size: 1.8em; }
 
         #move-history {
-            height: 150px; overflow-y: auto; background-color: #333;
+            height: 120px; overflow-y: auto; background-color: #333;
             padding: 5px; border-radius: 4px;
         }
         #move-history-list { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: auto 1fr 1fr; gap: 5px 10px;}
@@ -322,7 +336,7 @@
             gap: 10px;
         }
         .settings-grid label { font-weight: 600; }
-        #theme-select, #bot-select {
+        #theme-select, #bot-select, #time-control-select {
             width: 100%;
             padding: 8px;
             background-color: #333;
@@ -385,8 +399,10 @@
 
     <div class="game-wrapper">
         <div class="board-container">
+            <div id="bot-timer" class="timer">00:00</div>
             <div id="chessboard"></div>
             <div id="animation-layer"></div>
+            <div id="player-timer" class="timer">00:00</div>
         </div>
         <div class="info-container">
             <div class="info-panel">
@@ -427,6 +443,14 @@
                         <option value="icy">Icy Blue</option>
                         <option value="slate">Slate</option>
                     </select>
+                    <label for="time-control-select">Time:</label>
+                    <select id="time-control-select">
+                        <option value="0">Unlimited</option>
+                        <option value="60">1 min</option>
+                        <option value="180">3 min</option>
+                        <option value="300">5 min</option>
+                        <option value="600">10 min</option>
+                    </select>
                 </div>
             </div>
             <div class="move-history-panel">
@@ -465,7 +489,229 @@
         Game developed by PRATIK KARMAKAR
     </footer>
 
+    <!-- AI WORKER SCRIPT -->
+    <script id="ai-worker" type="javascript/worker">
+        // --- This script runs in a separate thread ---
 
+        // --- Constants ---
+        const pieceValues = { 'P': 100, 'N': 320, 'B': 330, 'R': 500, 'Q': 900, 'K': 20000 };
+        const pst = {
+            'P': [[0,0,0,0,0,0,0,0],[50,50,50,50,50,50,50,50],[10,10,20,30,30,20,10,10],[5,5,10,25,25,10,5,5],[0,0,0,20,20,0,0,0],[5,-5,-10,0,0,-10,-5,5],[5,10,10,-20,-20,10,10,5],[0,0,0,0,0,0,0,0]],
+            'N': [[-50,-40,-30,-30,-30,-30,-40,-50],[-40,-20,0,0,0,0,-20,-40],[-30,0,10,15,15,10,0,-30],[-30,5,15,20,20,15,5,-30],[-30,0,15,20,20,15,0,-30],[-30,5,10,15,15,10,5,-30],[-40,-20,0,5,5,0,-20,-40],[-50,-40,-30,-30,-30,-30,-40,-50]],
+            'B': [[-20,-10,-10,-10,-10,-10,-10,-20],[-10,0,0,0,0,0,0,-10],[-10,0,5,10,10,5,0,-10],[-10,5,5,10,10,5,5,-10],[-10,0,10,10,10,10,0,-10],[-10,10,10,10,10,10,10,-10],[-10,5,0,0,0,0,5,-10],[-20,-10,-10,-10,-10,-10,-10,-20]],
+            'R': [[0,0,0,0,0,0,0,0],[5,10,10,10,10,10,10,5],[-5,0,0,0,0,0,0,-5],[-5,0,0,0,0,0,0,-5],[-5,0,0,0,0,0,0,-5],[-5,0,0,0,0,0,0,-5],[-5,0,0,0,0,0,0,-5],[0,0,0,5,5,0,0,0]],
+            'Q': [[-20,-10,-10,-5,-5,-10,-10,-20],[-10,0,0,0,0,0,0,-10],[-10,0,5,5,5,5,0,-10],[-5,0,5,5,5,5,0,-5],[0,0,5,5,5,5,0,-5],[-10,5,5,5,5,5,0,-10],[-10,0,5,0,0,0,0,-10],[-20,-10,-10,-5,-5,-10,-10,-20]],
+            'K': [[-30,-40,-40,-50,-50,-40,-40,-30],[-30,-40,-40,-50,-50,-40,-40,-30],[-30,-40,-40,-50,-50,-40,-40,-30],[-30,-40,-40,-50,-50,-40,-40,-30],[-20,-30,-30,-40,-40,-30,-30,-20],[-10,-20,-20,-20,-20,-20,-20,-10],[20,20,0,0,0,0,20,20],[20,30,10,0,0,10,30,20]]
+        };
+        let enPassantTargetWorker, castlingRightsWorker;
+
+        // --- Worker Message Handler ---
+        self.onmessage = function(e) {
+            const { depth, boardState, kingPositions, currentPlayer, enPassantTarget, castlingRights } = e.data;
+            enPassantTargetWorker = enPassantTarget;
+            castlingRightsWorker = castlingRights;
+            const bestMove = findBestMove(depth, boardState, kingPositions, currentPlayer);
+            self.postMessage(bestMove);
+        };
+        
+        // --- AI Logic (Copied from main script) ---
+        function findBestMove(depth, currentBoard, currentKings, color) {
+            let bestScore = color === 'white' ? -Infinity : Infinity;
+            let bestMove = null;
+            const moves = getAllValidMovesForColor(color, currentBoard, currentKings);
+
+            for (const move of moves) {
+                const { tempBoard, tempKings } = simulateMove(currentBoard, currentKings, move.from, move.to);
+                
+                let score = minimax(tempBoard, tempKings, depth - 1, -Infinity, Infinity, color === 'black');
+                if (color === 'white') {
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestMove = move;
+                    }
+                } else {
+                     if (score < bestScore) {
+                        bestScore = score;
+                        bestMove = move;
+                    }
+                }
+            }
+            return bestMove;
+        }
+
+        function minimax(board, kings, depth, alpha, beta, isMaximizingPlayer) {
+            if (depth === 0) {
+                return evaluateBoard(board, 'black');
+            }
+
+            const color = isMaximizingPlayer ? 'black' : 'white';
+            const moves = getAllValidMovesForColor(color, board, kings);
+            
+            if (moves.length === 0) {
+                if (isKingInCheck(color, board, kings)) return isMaximizingPlayer ? -Infinity : Infinity;
+                return 0;
+            }
+
+            if (isMaximizingPlayer) {
+                let maxEval = -Infinity;
+                for (const move of moves) {
+                    const { tempBoard, tempKings } = simulateMove(board, kings, move.from, move.to);
+                    const evaluation = minimax(tempBoard, tempKings, depth - 1, alpha, beta, false);
+                    maxEval = Math.max(maxEval, evaluation);
+                    alpha = Math.max(alpha, evaluation);
+                    if (beta <= alpha) break;
+                }
+                return maxEval;
+            } else {
+                let minEval = Infinity;
+                for (const move of moves) {
+                    const { tempBoard, tempKings } = simulateMove(board, kings, move.from, move.to);
+                    const evaluation = minimax(tempBoard, tempKings, depth - 1, alpha, beta, true);
+                    minEval = Math.min(minEval, evaluation);
+                    beta = Math.min(beta, evaluation);
+                    if (beta <= alpha) break;
+                }
+                return minEval;
+            }
+        }
+        
+        function simulateMove(board, kings, from, to) {
+            const tempBoard = JSON.parse(JSON.stringify(board));
+            const tempKings = JSON.parse(JSON.stringify(kings));
+            const piece = tempBoard[from.row][from.col];
+            
+            tempBoard[to.row][to.col] = piece;
+            tempBoard[from.row][from.col] = null;
+            if(piece.toUpperCase() === 'K') {
+                tempKings[isWhitePiece(piece) ? 'white' : 'black'] = {row: to.row, col: to.col};
+            }
+            return { tempBoard, tempKings };
+        }
+
+        function evaluateBoard(board, perspectiveColor) {
+            let totalEvaluation = 0;
+            for (let row = 0; row < 8; row++) {
+                for (let col = 0; col < 8; col++) {
+                    const piece = board[row][col];
+                    if (piece) {
+                        const value = pieceValues[piece.toUpperCase()];
+                        const positionValue = getPiecePositionValue(piece, row, col);
+                        totalEvaluation += isWhitePiece(piece) ? (value + positionValue) : -(value + positionValue);
+                    }
+                }
+            }
+            return perspectiveColor === 'white' ? totalEvaluation : -totalEvaluation;
+        }
+
+        function getPiecePositionValue(piece, row, col) {
+            const pieceType = piece.toUpperCase();
+            if (isWhitePiece(piece)) {
+                return pst[pieceType][row][col];
+            } else {
+                return pst[pieceType][7 - row][col];
+            }
+        }
+
+        function getValidMovesForPiece(row, col, board, kings) {
+            const piece = board[row][col];
+            if (!piece) return [];
+            
+            const color = isWhitePiece(piece) ? 'white' : 'black';
+            const moves = getRawMovesForPiece(row, col, board);
+            
+            return moves.filter(move => {
+                const { tempBoard, tempKings } = simulateMove(board, kings, {row, col}, move);
+                return !isKingInCheck(color, tempBoard, tempKings);
+            });
+        }
+        
+        function getAllValidMovesForColor(color, board, kings) {
+            let allMoves = [];
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    const piece = board[r][c];
+                    if (piece && (isWhitePiece(piece) ? 'white' : 'black') === color) {
+                        const moves = getValidMovesForPiece(r, c, board, kings);
+                        moves.forEach(move => {
+                            allMoves.push({ from: {row: r, col: c}, to: move });
+                        });
+                    }
+                }
+            }
+            return allMoves;
+        }
+        
+        function getRawMovesForPiece(row, col, board) {
+            const piece = board[row][col];
+            const moves = [];
+            const color = isWhitePiece(piece) ? 'white' : 'black';
+            const addMove = (r, c) => { if (isInBounds(r, c)) { const target = board[r][c]; if (!target || isOpponentPiece(piece, target)) moves.push({row:r, col:c}); } };
+            
+            switch (piece.toUpperCase()) {
+                case 'P':
+                    const dir = color === 'white' ? -1 : 1, startRow = color === 'white' ? 6 : 1;
+                    if (isInBounds(row + dir, col) && !board[row + dir][col]) {
+                        moves.push({row: row + dir, col});
+                        if (row === startRow && !board[row + 2 * dir][col]) moves.push({row: row + 2 * dir, col});
+                    }
+                    [-1, 1].forEach(dCol => {
+                        if (isInBounds(row + dir, col + dCol)) {
+                           const target = board[row + dir][col + dCol];
+                           if(target && isOpponentPiece(piece, target)) moves.push({row: row + dir, col: col + dCol});
+                           if(enPassantTargetWorker && row + dir === enPassantTargetWorker.row && col + dCol === enPassantTargetWorker.col) moves.push({row: row + dir, col: col + dCol});
+                        }
+                    });
+                    break;
+                case 'N': [[2,1],[2,-1],[-2,1],[-2,-1],[1,2],[1,-2],[-1,2],[-1,-2]].forEach(o => addMove(row+o[0], col+o[1])); break;
+                case 'K':
+                    [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]].forEach(o => addMove(row+o[0], col+o[1]));
+                    if (castlingRightsWorker[color].K && !board[row][col+1] && !board[row][col+2] && !isKingInCheck(color, board) && !isSquareUnderAttack({row,col:col+1},getOpponentColor(color),board) && !isSquareUnderAttack({row,col:col+2},getOpponentColor(color),board)) moves.push({row, col: col + 2});
+                    if (castlingRightsWorker[color].Q && !board[row][col-1] && !board[row][col-2] && !board[row][col-3] && !isKingInCheck(color, board) && !isSquareUnderAttack({row,col:col-1},getOpponentColor(color),board) && !isSquareUnderAttack({row,col:col-2},getOpponentColor(color),board)) moves.push({row, col: col - 2});
+                    break;
+                case 'R': case 'B': case 'Q':
+                    const dirs = {'R':[[1,0],[-1,0],[0,1],[0,-1]],'B':[[1,1],[1,-1],[-1,1],[-1,-1]],'Q':[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]}[piece.toUpperCase()];
+                    dirs.forEach(dir => {
+                        let r = row + dir[0], c = col + dir[1];
+                        while(isInBounds(r,c)){
+                            const target = board[r][c];
+                            if(target){ if(isOpponentPiece(piece, target)) moves.push({row:r, col:c}); break; }
+                            moves.push({row:r, col:c});
+                            r += dir[0]; c += dir[1];
+                        }
+                    });
+                    break;
+            }
+            return moves;
+        }
+
+        function isKingInCheck(kingColor, board, kings) {
+             const kingPos = kings[kingColor];
+             return isSquareUnderAttack(kingPos, getOpponentColor(kingColor), board, kings);
+        }
+        
+        function isSquareUnderAttack(position, attackerColor, board, kings) {
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    const piece = board[r][c];
+                    if (piece && (isWhitePiece(piece) ? 'white' : 'black') === attackerColor) {
+                        const moves = getRawMovesForPiece(r, c, board);
+                        if (moves.some(move => move.row === position.row && move.col === position.col)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
+        function isWhitePiece(p) { return p === p.toUpperCase(); }
+        function isOpponentPiece(p1,p2) { return isWhitePiece(p1) !== isWhitePiece(p2); }
+        function isInBounds(r,c) { return r >= 0 && r < 8 && c >= 0 && c < 8; }
+        function getOpponentColor(c) { return c === 'white' ? 'black' : 'white'; }
+
+    </script>
+    
+    <!-- MAIN GAME SCRIPT -->
     <script>
     document.addEventListener('DOMContentLoaded', () => {
         // --- DOM Elements ---
@@ -477,10 +723,13 @@
         const moveHistoryList = document.getElementById('move-history-list');
         const themeSelectElement = document.getElementById('theme-select');
         const botSelectElement = document.getElementById('bot-select');
+        const timeControlSelect = document.getElementById('time-control-select');
         const botPicElement = document.getElementById('bot-pic');
         const botNameElement = document.getElementById('bot-name');
         const botRatingElement = document.getElementById('bot-rating');
         const playerRatingElement = document.getElementById('player-rating');
+        const playerTimerElement = document.getElementById('player-timer');
+        const botTimerElement = document.getElementById('bot-timer');
         const promotionModal = document.getElementById('promotion-modal');
         const promotionChoices = document.getElementById('promotion-choices');
         const gameOverModal = document.getElementById('game-over-modal');
@@ -496,7 +745,26 @@
         const reviewMoveNumberElement = document.getElementById('review-move-number');
 
         // --- Game State Variables ---
-        let boardState, selectedSquare, currentPlayer, validMoves, kingPositions, enPassantTarget, castlingRights, moveHistory, capturedPieces, currentBot, playerRating, botRatings, playerColor, gameHistoryForReview, reviewIndex;
+        let boardState, selectedSquare, currentPlayer, validMoves, kingPositions, enPassantTarget, castlingRights, moveHistory, capturedPieces, currentBot, playerRating, botRatings, playerColor, gameHistoryForReview, reviewIndex, timers, timerInterval, aiWorker;
+        
+        // --- Initialize AI Worker ---
+        try {
+            const workerBlob = new Blob([document.querySelector('#ai-worker').textContent], { type: 'application/javascript' });
+            aiWorker = new Worker(URL.createObjectURL(workerBlob));
+            aiWorker.onmessage = function(e) {
+                const bestMove = e.data;
+                if (bestMove) {
+                    makeMove(bestMove.from, bestMove.to);
+                } else {
+                    // This can happen if the bot has no valid moves, which should be a game-over scenario.
+                    // The main thread's game-over check will handle it.
+                }
+            };
+        } catch (error) {
+            console.error("Failed to initialize AI worker. The game will be very slow.", error);
+            // Provide a fallback or alert the user.
+        }
+
         
         // --- Constants ---
         const pieceUnicode = { 'K': '♔', 'Q': '♕', 'R': '♖', 'B': '♗', 'N': '♘', 'P': '♙', 'k': '♚', 'q': '♛', 'r': '♜', 'b': '♝', 'n': '♞', 'p': '♟' };
@@ -510,50 +778,27 @@
         };
         const bookMoves = new Set(['e2e4', 'd2d4', 'g1f3', 'c2c4', 'e7e5', 'c7c5', 'e7e6', 'd7d5', 'g8f6']);
 
-        // --- Piece-Square Tables (Positional Evaluation) ---
+        // --- Piece-Square Tables (used for analysis, AI has its own copy) ---
         const pst = {
-            'P': [
-                [0,  0,  0,  0,  0,  0,  0,  0],[50, 50, 50, 50, 50, 50, 50, 50],
-                [10, 10, 20, 30, 30, 20, 10, 10],[5,  5, 10, 25, 25, 10,  5,  5],
-                [0,  0,  0, 20, 20,  0,  0,  0],[5, -5,-10,  0,  0,-10, -5,  5],
-                [5, 10, 10,-20,-20, 10, 10,  5],[0,  0,  0,  0,  0,  0,  0,  0]
-            ],
-            'N': [
-                [-50,-40,-30,-30,-30,-30,-40,-50],[-40,-20,  0,  0,  0,  0,-20,-40],
-                [-30,  0, 10, 15, 15, 10,  0,-30],[-30,  5, 15, 20, 20, 15,  5,-30],
-                [-30,  0, 15, 20, 20, 15,  0,-30],[-30,  5, 10, 15, 15, 10,  5,-30],
-                [-40,-20,  0,  5,  5,  0,-20,-40],[-50,-40,-30,-30,-30,-30,-40,-50]
-            ],
-            'B': [
-                [-20,-10,-10,-10,-10,-10,-10,-20],[-10,  0,  0,  0,  0,  0,  0,-10],
-                [-10,  0,  5, 10, 10,  5,  0,-10],[-10,  5,  5, 10, 10,  5,  5,-10],
-                [-10,  0, 10, 10, 10, 10,  0,-10],[-10, 10, 10, 10, 10, 10, 10,-10],
-                [-10,  5,  0,  0,  0,  0,  5,-10],[-20,-10,-10,-10,-10,-10,-10,-20]
-            ],
-            'R': [
-                [0,  0,  0,  0,  0,  0,  0,  0],[5, 10, 10, 10, 10, 10, 10,  5],
-                [-5,  0,  0,  0,  0,  0,  0, -5],[-5,  0,  0,  0,  0,  0,  0, -5],
-                [-5,  0,  0,  0,  0,  0,  0, -5],[-5,  0,  0,  0,  0,  0,  0, -5],
-                [-5,  0,  0,  0,  0,  0,  0, -5],[0,  0,  0,  5,  5,  0,  0,  0]
-            ],
-            'Q': [
-                [-20,-10,-10, -5, -5,-10,-10,-20],[-10,  0,  0,  0,  0,  0,  0,-10],
-                [-10,  0,  5,  5,  5,  5,  0,-10],[-5,  0,  5,  5,  5,  5,  0, -5],
-                [0,  0,  5,  5,  5,  5,  0, -5],[-10,  5,  5,  5,  5,  5,  0,-10],
-                [-10,  0,  5,  0,  0,  0,  0,-10],[-20,-10,-10, -5, -5,-10,-10,-20]
-            ],
-            'K': [
-                [-30,-40,-40,-50,-50,-40,-40,-30],[-30,-40,-40,-50,-50,-40,-40,-30],
-                [-30,-40,-40,-50,-50,-40,-40,-30],[-30,-40,-40,-50,-50,-40,-40,-30],
-                [-20,-30,-30,-40,-40,-30,-30,-20],[-10,-20,-20,-20,-20,-20,-20,-10],
-                [20, 20,  0,  0,  0,  0, 20, 20],[20, 30, 10,  0,  0, 10, 30, 20]
-            ]
+            'P': [[0,0,0,0,0,0,0,0],[50,50,50,50,50,50,50,50],[10,10,20,30,30,20,10,10],[5,5,10,25,25,10,5,5],[0,0,0,20,20,0,0,0],[5,-5,-10,0,0,-10,-5,5],[5,10,10,-20,-20,10,10,5],[0,0,0,0,0,0,0,0]],
+            'N': [[-50,-40,-30,-30,-30,-30,-40,-50],[-40,-20,0,0,0,0,-20,-40],[-30,0,10,15,15,10,0,-30],[-30,5,15,20,20,15,5,-30],[-30,0,15,20,20,15,0,-30],[-30,5,10,15,15,10,5,-30],[-40,-20,0,5,5,0,-20,-40],[-50,-40,-30,-30,-30,-30,-40,-50]],
+            'B': [[-20,-10,-10,-10,-10,-10,-10,-20],[-10,0,0,0,0,0,0,-10],[-10,0,5,10,10,5,0,-10],[-10,5,5,10,10,5,5,-10],[-10,0,10,10,10,10,0,-10],[-10,10,10,10,10,10,10,-10],[-10,5,0,0,0,0,5,-10],[-20,-10,-10,-10,-10,-10,-10,-20]],
+            'R': [[0,0,0,0,0,0,0,0],[5,10,10,10,10,10,10,5],[-5,0,0,0,0,0,0,-5],[-5,0,0,0,0,0,0,-5],[-5,0,0,0,0,0,0,-5],[-5,0,0,0,0,0,0,-5],[-5,0,0,0,0,0,0,-5],[0,0,0,5,5,0,0,0]],
+            'Q': [[-20,-10,-10,-5,-5,-10,-10,-20],[-10,0,0,0,0,0,0,-10],[-10,0,5,5,5,5,0,-10],[-5,0,5,5,5,5,0,-5],[0,0,5,5,5,5,0,-5],[-10,5,5,5,5,5,0,-10],[-10,0,5,0,0,0,0,-10],[-20,-10,-10,-5,-5,-10,-10,-20]],
+            'K': [[-30,-40,-40,-50,-50,-40,-40,-30],[-30,-40,-40,-50,-50,-40,-40,-30],[-30,-40,-40,-50,-50,-40,-40,-30],[-30,-40,-40,-50,-50,-40,-40,-30],[-20,-30,-30,-40,-40,-30,-30,-20],[-10,-20,-20,-20,-20,-20,-20,-10],[20,20,0,0,0,0,20,20],[20,30,10,0,0,10,30,20]]
         };
 
         // --- Game Initialization ---
         function initializeGame() {
+            stopTimer();
             reviewPanel.classList.add('hidden');
             boardElement.classList.remove('in-review');
+
+            const timeInSeconds = parseInt(timeControlSelect.value, 10);
+            timers = {
+                white: timeInSeconds,
+                black: timeInSeconds
+            };
 
             boardState = [
                 ['r', 'n', 'b', 'q', 'k', 'b', 'n', 'r'], ['p', 'p', 'p', 'p', 'p', 'p', 'p', 'p'],
@@ -570,11 +815,17 @@
             moveHistory = [];
             gameHistoryForReview = [{ boardState: JSON.parse(JSON.stringify(boardState)), kingPositions: JSON.parse(JSON.stringify(kingPositions)), currentPlayer: 'white' }];
             capturedPieces = { 'white': [], 'black': [] };
+            
             updateStatus();
             renderBoard();
             renderCapturedPieces();
             renderMoveHistory();
             renderRatings();
+            renderTimers();
+
+            if (timeInSeconds > 0) {
+                startTimer();
+            }
 
             if (playerColor === 'black' && currentPlayer === 'white') {
                 setTimeout(makeBotMove, 500);
@@ -667,6 +918,17 @@
         function renderRatings() {
             playerRatingElement.textContent = playerRating;
             botRatingElement.textContent = botRatings[botSelectElement.value];
+        }
+        
+        function renderTimers() {
+            const whiteTime = timers.white;
+            const blackTime = timers.black;
+            
+            const playerTimer = playerColor === 'white' ? whiteTime : blackTime;
+            const botTimer = playerColor === 'white' ? blackTime : whiteTime;
+
+            playerTimerElement.textContent = formatTime(playerTimer);
+            botTimerElement.textContent = formatTime(botTimer);
         }
 
         // --- Event Handlers ---
@@ -813,7 +1075,7 @@
             validMoves = [];
             
             if (isGameOver()) {
-                handleGameOver();
+                handleGameOver("checkmate/stalemate");
                 updateStatus();
                 renderBoard();
                 renderCapturedPieces();
@@ -827,11 +1089,12 @@
             renderMoveHistory();
             
             if (currentPlayer !== playerColor) {
-                setTimeout(makeBotMove, 350);
+                makeBotMove();
             }
         }
         
         function handlePawnPromotion(row, col, color) {
+            stopTimer(); // Pause timer during promotion choice
             promotionModal.classList.remove('hidden');
             const choices = color === 'white' ? ['Q', 'R', 'B', 'N'] : ['q', 'r', 'b', 'n'];
             promotionChoices.innerHTML = '';
@@ -842,6 +1105,7 @@
                     boardState[row][col] = choice;
                     gameHistoryForReview[gameHistoryForReview.length - 1].boardState[row][col] = choice; // Update review history
                     promotionModal.classList.add('hidden');
+                    if (timers.white > 0 || timers.black > 0) startTimer();
                     switchTurn();
                 };
                 promotionChoices.appendChild(button);
@@ -851,112 +1115,26 @@
         // --- AI LOGIC ---
         function makeBotMove() {
             statusElement.textContent = `${currentBot.name} is thinking...`;
-            setTimeout(() => {
+             if (aiWorker) {
+                aiWorker.postMessage({
+                    depth: currentBot.depth,
+                    boardState: boardState,
+                    kingPositions: kingPositions,
+                    currentPlayer: currentPlayer,
+                    enPassantTarget: enPassantTarget,
+                    castlingRights: castlingRights
+                });
+            } else {
+                // Fallback for if worker fails
+                console.warn("AI Worker not available, running on main thread.");
                 const bestMove = findBestMove(currentBot.depth, boardState, kingPositions, currentPlayer); 
                 if (bestMove) {
                     makeMove(bestMove.from, bestMove.to);
                 }
-            }, 50);
-        }
-        
-        function findBestMove(depth, currentBoard, currentKings, color) {
-            let bestScore = color === 'white' ? -Infinity : Infinity;
-            let bestMove = null;
-            const moves = getAllValidMovesForColor(color, currentBoard, currentKings);
-
-            for (const move of moves) {
-                const { tempBoard, tempKings } = simulateMove(currentBoard, currentKings, move.from, move.to);
-                
-                let score = minimax(tempBoard, tempKings, depth - 1, -Infinity, Infinity, color === 'black');
-                if (color === 'white') {
-                    if (score > bestScore) {
-                        bestScore = score;
-                        bestMove = move;
-                    }
-                } else {
-                     if (score < bestScore) {
-                        bestScore = score;
-                        bestMove = move;
-                    }
-                }
-            }
-            return bestMove;
-        }
-
-        function minimax(board, kings, depth, alpha, beta, isMaximizingPlayer) {
-            if (depth === 0) {
-                return evaluateBoard(board, 'black'); // Evaluate from black's perspective (the bot)
-            }
-
-            const color = isMaximizingPlayer ? 'black' : 'white';
-            const moves = getAllValidMovesForColor(color, board, kings);
-            
-            if (moves.length === 0) {
-                if (isKingInCheck(color, board, kings)) return isMaximizingPlayer ? -Infinity : Infinity;
-                return 0;
-            }
-
-            if (isMaximizingPlayer) {
-                let maxEval = -Infinity;
-                for (const move of moves) {
-                    const { tempBoard, tempKings } = simulateMove(board, kings, move.from, move.to);
-                    const evaluation = minimax(tempBoard, tempKings, depth - 1, alpha, beta, false);
-                    maxEval = Math.max(maxEval, evaluation);
-                    alpha = Math.max(alpha, evaluation);
-                    if (beta <= alpha) break;
-                }
-                return maxEval;
-            } else {
-                let minEval = Infinity;
-                for (const move of moves) {
-                    const { tempBoard, tempKings } = simulateMove(board, kings, move.from, move.to);
-                    const evaluation = minimax(tempBoard, tempKings, depth - 1, alpha, beta, true);
-                    minEval = Math.min(minEval, evaluation);
-                    beta = Math.min(beta, evaluation);
-                    if (beta <= alpha) break;
-                }
-                return minEval;
             }
         }
         
-        function simulateMove(board, kings, from, to) {
-            const tempBoard = JSON.parse(JSON.stringify(board));
-            const tempKings = JSON.parse(JSON.stringify(kings));
-            const piece = tempBoard[from.row][from.col];
-            
-            tempBoard[to.row][to.col] = piece;
-            tempBoard[from.row][from.col] = null;
-            if(piece.toUpperCase() === 'K') {
-                tempKings[isWhitePiece(piece) ? 'white' : 'black'] = {row: to.row, col: to.col};
-            }
-            return { tempBoard, tempKings };
-        }
-
-        function evaluateBoard(board, perspectiveColor) {
-            let totalEvaluation = 0;
-            for (let row = 0; row < 8; row++) {
-                for (let col = 0; col < 8; col++) {
-                    const piece = board[row][col];
-                    if (piece) {
-                        const value = pieceValues[piece.toUpperCase()];
-                        const positionValue = getPiecePositionValue(piece, row, col);
-                        totalEvaluation += isWhitePiece(piece) ? (value + positionValue) : -(value + positionValue);
-                    }
-                }
-            }
-            return perspectiveColor === 'white' ? totalEvaluation : -totalEvaluation;
-        }
-
-        function getPiecePositionValue(piece, row, col) {
-            const pieceType = piece.toUpperCase();
-            if (isWhitePiece(piece)) {
-                return pst[pieceType][row][col];
-            } else {
-                return pst[pieceType][7 - row][col];
-            }
-        }
-
-        // --- Move Generation & Validation ---
+        // --- Move Generation & Validation (for main thread UI) ---
         function getValidMovesForPiece(row, col, board, kings = kingPositions) {
             const piece = board[row][col];
             if (!piece) return [];
@@ -1054,15 +1232,23 @@
             return getAllValidMovesForColor(currentPlayer, boardState, kingPositions).length === 0;
         }
         
-        function handleGameOver() {
-            let result;
-            let message;
-            if (isKingInCheck(currentPlayer)) {
-                 message = `${getOpponentColor(currentPlayer)} wins by Checkmate!`;
-                 result = (currentPlayer === playerColor) ? 'loss' : 'win';
+        function handleGameOver(reason) {
+            stopTimer();
+            let result, message;
+            
+            if (reason === 'time') {
+                const loser = timers.white <= 0 ? 'White' : 'Black';
+                const winner = getOpponentColor(loser.toLowerCase());
+                message = `${winner.charAt(0).toUpperCase() + winner.slice(1)} wins on time!`;
+                result = (playerColor === winner) ? 'win' : 'loss';
             } else {
-                 message = 'Stalemate! It\'s a draw.';
-                 result = 'draw';
+                if (isKingInCheck(currentPlayer)) {
+                     message = `${getOpponentColor(currentPlayer)} wins by Checkmate!`;
+                     result = (currentPlayer === playerColor) ? 'loss' : 'win';
+                } else {
+                     message = 'Stalemate! It\'s a draw.';
+                     result = 'draw';
+                }
             }
             gameOverMessage.textContent = message;
             updateRatings(result);
@@ -1076,16 +1262,15 @@
             const opponentRating = botRatings[botId];
 
             const playerExpected = 1 / (1 + Math.pow(10, (opponentRating - playerRating) / 400));
-            const botExpected = 1 - playerExpected;
-
+            
             const playerScore = result === 'win' ? 1 : result === 'draw' ? 0.5 : 0;
-            const botScore = 1 - playerScore;
 
             const newPlayerRating = playerRating + K * (playerScore - playerExpected);
-            const newBotRating = opponentRating + K * (botScore - botExpected);
+            // Bot rating doesn't change for now, to provide a stable challenge
+            // const newBotRating = opponentRating + K * ((1 - playerScore) - (1-playerExpected));
 
             playerRating = Math.round(newPlayerRating);
-            botRatings[botId] = Math.round(newBotRating);
+            // botRatings[botId] = Math.round(newBotRating);
 
             saveRatings();
         }
@@ -1141,20 +1326,12 @@
             const evalAfter = evaluateBoard(currentHistory.boardState, playerColor);
             const delta = evalAfter - evalBefore;
             
-            // Find what the best move was
-            const bestMoveFound = findBestMove(2, prevHistory.boardState, prevHistory.kingPositions, playerColor);
-            const bestMoveSim = simulateMove(prevHistory.boardState, prevHistory.kingPositions, bestMoveFound.from, bestMoveFound.to);
-            const bestEval = evaluateBoard(bestMoveSim.tempBoard, playerColor);
-
-            const accuracy = Math.max(0, 1 - Math.abs(bestEval - evalAfter) / 500);
-
+            // This is a simplified analysis, a real one would be much more intensive
             if (delta < -250) {
                  moveAnalysisElement.innerHTML = `<span id="blunder-move">Blunder</span>`;
             } else if (delta < -100) {
                  moveAnalysisElement.innerHTML = `<span id="miss-move">Miss</span>`;
-            } else if (accuracy > 0.95 && delta > 50) {
-                 moveAnalysisElement.innerHTML = `<span id="brilliant-move">Brilliant Move!</span>`;
-            } else if (accuracy > 0.85) {
+            } else if (delta > 100) {
                  moveAnalysisElement.innerHTML = `<span id="great-move">Great Move</span>`;
             } else {
                  moveAnalysisElement.innerHTML = `<span id="good-move">Good Move</span>`;
@@ -1162,7 +1339,30 @@
         }
 
 
-        // --- Utility, Settings & Theme Functions ---
+        // --- Utility, Settings, Timer & Theme Functions ---
+        function startTimer() {
+            if (timerInterval) clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                timers[currentPlayer]--;
+                renderTimers();
+                if (timers[currentPlayer] <= 0) {
+                    handleGameOver('time');
+                }
+            }, 1000);
+        }
+
+        function stopTimer() {
+            clearInterval(timerInterval);
+            timerInterval = null;
+        }
+
+        function formatTime(seconds) {
+            if (seconds === 0 || !seconds) return "00:00";
+            const mins = Math.floor(seconds / 60);
+            const secs = seconds % 60;
+            return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+        }
+        
         function initializeRatings() {
             const savedPlayerRating = localStorage.getItem('playerRating');
             const savedBotRatings = localStorage.getItem('botRatings');
@@ -1216,7 +1416,8 @@
             if (isKingInCheck(currentPlayer)) s += " (Check)";
             statusElement.textContent = s;
         }
-        
+
+        // --- Event Listeners ---
         resetButton.addEventListener('click', initializeGame);
         modalNewGameBtn.addEventListener('click', () => {
             gameOverModal.classList.add('hidden');
@@ -1224,6 +1425,10 @@
         });
         themeSelectElement.addEventListener('change', (e) => applyTheme(e.target.value));
         botSelectElement.addEventListener('change', (e) => applyBot(e.target.value));
+        timeControlSelect.addEventListener('change', (e) => {
+             localStorage.setItem('timeControl', e.target.value);
+             initializeGame();
+        });
         
         playWhiteBtn.addEventListener('click', () => {
             playerColor = 'white';
@@ -1268,11 +1473,12 @@
         playerColor = localStorage.getItem('playerColor') || 'white';
         if (playerColor === 'white') {
              playWhiteBtn.classList.add('active');
-             playBlackBtn.classList.remove('active');
         } else {
              playBlackBtn.classList.add('active');
-             playWhiteBtn.classList.remove('active');
         }
+
+        const savedTimeControl = localStorage.getItem('timeControl') || '300';
+        timeControlSelect.value = savedTimeControl;
 
         initializeGame();
 
