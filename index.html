@@ -754,15 +754,15 @@
             aiWorker.onmessage = function(e) {
                 const bestMove = e.data;
                 if (bestMove) {
-                    makeMove(bestMove.from, bestMove.to);
-                } else {
-                    // This can happen if the bot has no valid moves, which should be a game-over scenario.
-                    // The main thread's game-over check will handle it.
+                    // Make sure the game hasn't ended while the AI was thinking
+                    if (timerInterval || (timers.white === 0 && timers.black === 0)) {
+                       makeMove(bestMove.from, bestMove.to);
+                    }
                 }
             };
         } catch (error) {
             console.error("Failed to initialize AI worker. The game will be very slow.", error);
-            // Provide a fallback or alert the user.
+            aiWorker = null; // Ensure worker is null if it fails
         }
 
         
@@ -770,11 +770,11 @@
         const pieceUnicode = { 'K': '♔', 'Q': '♕', 'R': '♖', 'B': '♗', 'N': '♘', 'P': '♙', 'k': '♚', 'q': '♛', 'r': '♜', 'b': '♝', 'n': '♞', 'p': '♟' };
         const pieceValues = { 'P': 100, 'N': 320, 'B': 330, 'R': 500, 'Q': 900, 'K': 20000 };
         const bots = {
-            'tal': { name: 'Mikhail Tal', depth: 2, rating: 1600, pic: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8c/Mikhail_Tal_1982.jpg/440px-Mikhail_Tal_1982.jpg' },
-            'anand': { name: 'Viswanathan Anand', depth: 3, rating: 1800, pic: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3b/Viswanathan_Anand_at_WCC_2014.jpg/440px-Viswanathan_Anand_at_WCC_2014.jpg' },
-            'nakamura': { name: 'Hikaru Nakamura', depth: 3, rating: 1800, pic: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/73/Hikaru_Nakamura_at_the_2022_Candidates_Tournament.jpg/440px-Hikaru_Nakamura_at_the_2022_Candidates_Tournament.jpg' },
-            'kasparov': { name: 'Garry Kasparov', depth: 4, rating: 2000, pic: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d4/Kasparov_at_the_opening_of_the_2016_Carlsen-Karjakin_match.jpg/440px-Kasparov_at_the_opening_of_the_2016_Carlsen-Karjakin_match.jpg' },
-            'carlsen': { name: 'Magnus Carlsen', depth: 4, rating: 2200, pic: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ec/FIDE_World_Chess_Championship_2018_Carlsen_-_Caruana_11.jpg/440px-FIDE_World_Chess_Championship_2018_Carlsen_-_Caruana_11.jpg' }
+            'tal': { name: 'Mikhail Tal', depth: 2, rating: 2705, pic: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8c/Mikhail_Tal_1982.jpg/440px-Mikhail_Tal_1982.jpg' },
+            'anand': { name: 'Viswanathan Anand', depth: 3, rating: 2743, pic: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3b/Viswanathan_Anand_at_WCC_2014.jpg/440px-Viswanathan_Anand_at_WCC_2014.jpg' },
+            'nakamura': { name: 'Hikaru Nakamura', depth: 3, rating: 2816, pic: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/73/Hikaru_Nakamura_at_the_2022_Candidates_Tournament.jpg/440px-Hikaru_Nakamura_at_the_2022_Candidates_Tournament.jpg' },
+            'kasparov': { name: 'Garry Kasparov', depth: 4, rating: 2851, pic: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d4/Kasparov_at_the_opening_of_the_2016_Carlsen-Karjakin_match.jpg/440px-Kasparov_at_the_opening_of_the_2016_Carlsen-Karjakin_match.jpg' },
+            'carlsen': { name: 'Magnus Carlsen', depth: 4, rating: 2909, pic: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ec/FIDE_World_Chess_Championship_2018_Carlsen_-_Caruana_11.jpg/440px-FIDE_World_Chess_Championship_2018_Carlsen_-_Caruana_11.jpg' }
         };
         const bookMoves = new Set(['e2e4', 'd2d4', 'g1f3', 'c2c4', 'e7e5', 'c7c5', 'e7e6', 'd7d5', 'g8f6']);
 
@@ -828,7 +828,7 @@
             }
 
             if (playerColor === 'black' && currentPlayer === 'white') {
-                setTimeout(makeBotMove, 500);
+                makeBotMove();
             }
         }
 
@@ -1343,10 +1343,12 @@
         function startTimer() {
             if (timerInterval) clearInterval(timerInterval);
             timerInterval = setInterval(() => {
-                timers[currentPlayer]--;
-                renderTimers();
-                if (timers[currentPlayer] <= 0) {
-                    handleGameOver('time');
+                if (timers[currentPlayer] > 0) {
+                    timers[currentPlayer]--;
+                    renderTimers();
+                    if (timers[currentPlayer] <= 0) {
+                        handleGameOver('time');
+                    }
                 }
             }, 1000);
         }
@@ -1416,6 +1418,38 @@
             if (isKingInCheck(currentPlayer)) s += " (Check)";
             statusElement.textContent = s;
         }
+        
+        // --- Main Thread AI analysis functions ---
+        function simulateMove(board, kings, from, to) {
+            const tempBoard = JSON.parse(JSON.stringify(board));
+            const tempKings = JSON.parse(JSON.stringify(kings));
+            const piece = tempBoard[from.row][from.col];
+            tempBoard[to.row][to.col] = piece;
+            tempBoard[from.row][from.col] = null;
+            if(piece.toUpperCase() === 'K') {
+                tempKings[isWhitePiece(piece) ? 'white' : 'black'] = {row: to.row, col: to.col};
+            }
+            return { tempBoard, tempKings };
+        }
+
+        function evaluateBoard(board, perspectiveColor) {
+            let totalEvaluation = 0;
+            for (let r = 0; r < 8; r++) { for (let c = 0; c < 8; c++) {
+                const piece = board[r][c];
+                if (piece) {
+                    const value = pieceValues[piece.toUpperCase()];
+                    const positionValue = getPiecePositionValue(piece, r, c);
+                    totalEvaluation += isWhitePiece(piece) ? (value + positionValue) : -(value + positionValue);
+                }
+            }}
+            return perspectiveColor === 'white' ? totalEvaluation : -totalEvaluation;
+        }
+        
+        function getPiecePositionValue(piece, row, col) {
+            const pieceType = piece.toUpperCase();
+            return isWhitePiece(piece) ? pst[pieceType][row][col] : pst[pieceType][7 - row][col];
+        }
+
 
         // --- Event Listeners ---
         resetButton.addEventListener('click', initializeGame);
@@ -1473,8 +1507,10 @@
         playerColor = localStorage.getItem('playerColor') || 'white';
         if (playerColor === 'white') {
              playWhiteBtn.classList.add('active');
+             playBlackBtn.classList.remove('active');
         } else {
              playBlackBtn.classList.add('active');
+             playWhiteBtn.classList.remove('active');
         }
 
         const savedTimeControl = localStorage.getItem('timeControl') || '300';
