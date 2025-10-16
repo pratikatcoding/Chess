@@ -70,6 +70,26 @@
             transition: background-color 0.3s ease;
         }
 
+        /* --- INTRO ANIMATIONS --- */
+        body.is-loading .game-wrapper > * {
+            opacity: 0;
+        }
+
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes slideInLeft {
+            from { opacity: 0; transform: translateX(-30px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .board-container.animate-in { animation: slideInLeft 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards; }
+        .info-panel.animate-in { animation: fadeInUp 0.5s 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards; }
+        .move-history-panel.animate-in { animation: fadeInUp 0.5s 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards; }
+        /* --- END INTRO ANIMATIONS --- */
+
         .game-wrapper {
             display: flex;
             flex-wrap: wrap;
@@ -93,6 +113,25 @@
             box-shadow: 0 10px 25px rgba(0,0,0,0.5);
             border-radius: 4px;
             border: 2px solid #4a3c31;
+        }
+        
+        #chessboard.is-animating {
+            pointer-events: none;
+        }
+
+        #animation-layer {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+            z-index: 100;
+        }
+        
+        .piece-clone {
+            position: absolute;
+            font-size: clamp(28px, 9vmin, 56px);
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 10;
         }
 
         .square {
@@ -121,8 +160,15 @@
         .square.dark .coordinate { color: var(--board-light); }
         .square.light .coordinate { color: var(--board-dark); }
         
-        .piece.white { color: #ffffff; text-shadow: 0 1px 3px rgba(0,0,0,0.6); }
-        .piece.black { color: #000000; text-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+        .piece {
+             cursor: grab;
+        }
+
+        .piece.hiding { visibility: hidden; }
+        .piece.fading-out { transition: opacity 0.2s ease-out; opacity: 0; }
+
+        .piece.white, .piece-clone.white { color: #ffffff; text-shadow: 0 1px 3px rgba(0,0,0,0.6); }
+        .piece.black, .piece-clone.black { color: #000000; text-shadow: 0 1px 3px rgba(0,0,0,0.3); }
 
         .selected {
             background-image: radial-gradient(circle, var(--highlight-color) 0%, var(--highlight-color) 20%, transparent 100%);
@@ -276,11 +322,12 @@
 
     </style>
 </head>
-<body>
+<body class="is-loading">
 
     <div class="game-wrapper">
         <div class="board-container">
             <div id="chessboard"></div>
+            <div id="animation-layer"></div>
         </div>
         <div class="info-container">
             <div class="info-panel">
@@ -547,15 +594,59 @@
             renderBoard();
         }
         
-        // --- Game Logic ---
-        function makeMove(from, to, isTemporary = false) {
+        // --- Game Logic with Animation ---
+
+        function makeMove(from, to) {
+            const animationLayer = document.getElementById('animation-layer');
+            const fromSquare = boardElement.querySelector(`[data-row='${from.row}'][data-col='${from.col}']`);
+            const toSquare = boardElement.querySelector(`[data-row='${to.row}'][data-col='${to.col}']`);
+            const pieceElement = fromSquare.querySelector('.piece');
+            
+            if (!fromSquare || !toSquare || !pieceElement) {
+                performStateUpdate(from, to); // Failsafe
+                return;
+            }
+
+            boardElement.classList.add('is-animating');
+
+            const fromRect = fromSquare.getBoundingClientRect();
+            const toRect = toSquare.getBoundingClientRect();
+            const boardRect = boardElement.getBoundingClientRect();
+
+            const clone = pieceElement.cloneNode(true);
+            clone.classList.add('piece-clone');
+            clone.style.top = `${fromRect.top - boardRect.top}px`;
+            clone.style.left = `${fromRect.left - boardRect.left}px`;
+            clone.style.width = `${fromRect.width}px`;
+            clone.style.height = `${fromRect.height}px`;
+            animationLayer.appendChild(clone);
+            
+            pieceElement.classList.add('hiding');
+            
+            const capturedPieceElement = toSquare.querySelector('.piece');
+            if (capturedPieceElement) {
+                capturedPieceElement.classList.add('fading-out');
+            }
+
+            clone.addEventListener('transitionend', () => {
+                animationLayer.innerHTML = '';
+                performStateUpdate(from, to);
+                boardElement.classList.remove('is-animating');
+            }, { once: true });
+
+            requestAnimationFrame(() => {
+                const deltaX = toRect.left - fromRect.left;
+                const deltaY = toRect.top - fromRect.top;
+                clone.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
+            });
+        }
+
+        function performStateUpdate(from, to) {
             const piece = boardState[from.row][from.col];
             const capturedPiece = boardState[to.row][to.col];
             
-            if (!isTemporary) {
-                moveHistory.push(getAlgebraicNotation(from, to, piece));
-            }
-            if (capturedPiece && !isTemporary) {
+            moveHistory.push(getAlgebraicNotation(from, to, piece));
+            if (capturedPiece) {
                 capturedPieces[isWhitePiece(capturedPiece) ? 'black' : 'white'].push(capturedPiece);
             }
 
@@ -591,17 +682,15 @@
             
             enPassantTarget = piece.toUpperCase() === 'P' && Math.abs(from.row - to.row) === 2 ? { row: (from.row + to.row) / 2, col: from.col } : null;
 
-            if (!isTemporary && piece === 'P' && to.row === 0) {
+            if (piece === 'P' && to.row === 0) {
                 handlePawnPromotion(to.row, to.col, 'white');
                 return;
             }
-            if (!isTemporary && piece === 'p' && to.row === 7) {
+            if (piece === 'p' && to.row === 7) {
                 boardState[to.row][to.col] = 'q';
             }
 
-            if (!isTemporary) {
-                switchTurn();
-            }
+            switchTurn();
         }
         
         function switchTurn() {
@@ -609,15 +698,20 @@
             selectedSquare = null;
             validMoves = [];
             
+            if (isGameOver()) {
+                handleGameOver();
+                // We stop here so the final board state is rendered before the modal
+                updateStatus();
+                renderBoard();
+                renderCapturedPieces();
+                renderMoveHistory();
+                return;
+            }
+
             updateStatus();
             renderBoard();
             renderCapturedPieces();
             renderMoveHistory();
-
-            if (isGameOver()) {
-                handleGameOver();
-                return;
-            }
             
             if (currentPlayer === 'black') {
                 setTimeout(makeBotMove, 100);
@@ -684,8 +778,8 @@
             const moves = getAllValidMovesForColor(color, board);
             
             if (moves.length === 0) {
-                if (isKingInCheck(color, board)) return isMaximizingPlayer ? -Infinity : Infinity; // Checkmate
-                return 0; // Stalemate
+                if (isKingInCheck(color, board)) return isMaximizingPlayer ? -Infinity : Infinity;
+                return 0;
             }
 
             if (isMaximizingPlayer) {
@@ -911,7 +1005,8 @@
         }
 
         function applyTheme(theme) {
-            document.body.className = theme === 'default' ? '' : `theme-${theme}`;
+            document.body.className = `theme-${theme}`;
+            if(theme === 'default') document.body.className = '';
             localStorage.setItem('chessTheme', theme);
         }
         
@@ -962,6 +1057,14 @@
         applyBot(savedBot);
         
         initializeGame();
+
+        // Trigger Intro Animation
+        setTimeout(() => {
+            document.querySelector('.board-container').classList.add('animate-in');
+            document.querySelector('.info-panel').classList.add('animate-in');
+            document.querySelector('.move-history-panel').classList.add('animate-in');
+            document.body.classList.remove('is-loading');
+        }, 100);
     });
     </script>
 </body>
