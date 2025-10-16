@@ -80,8 +80,8 @@
 
         .board-container {
             position: relative;
-            width: clamp(320px, 90vmin, 640px); /* Use vmin for stable scaling */
-            height: clamp(320px, 90vmin, 640px); /* Use vmin for stable scaling */
+            width: clamp(320px, 90vmin, 640px);
+            height: clamp(320px, 90vmin, 640px);
         }
 
         #chessboard {
@@ -99,7 +99,7 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            font-size: clamp(28px, 9vmin, 56px); /* Use vmin for stable scaling */
+            font-size: clamp(28px, 9vmin, 56px);
             position: relative;
             transition: background-color 0.3s ease;
         }
@@ -183,28 +183,32 @@
 
         .bot-profile {
             display: flex;
-            flex-direction: column;
             align-items: center;
+            gap: 12px;
             margin-bottom: 15px;
         }
 
         #bot-pic {
-            width: 80px;
-            height: 80px;
+            width: 60px;
+            height: 60px;
             border-radius: 50%;
             border: 3px solid var(--button-color);
             object-fit: cover;
-            margin-bottom: 8px;
             box-shadow: 0 4px 8px rgba(0,0,0,0.4);
             transition: border-color 0.3s ease;
         }
-
-        .bot-name {
-            font-weight: 600;
-            font-size: 1.1em;
-            color: var(--text-color);
-        }
         
+        .bot-info { display: flex; flex-direction: column; }
+        .bot-name { font-weight: 600; font-size: 1.1em; color: var(--text-color); }
+        .rating-display { font-size: 0.9em; color: var(--text-color); opacity: 0.8; }
+        
+        .player-profile {
+            text-align: center;
+            margin-bottom: 10px;
+        }
+
+        .player-name { font-weight: 600; font-size: 1.1em; }
+
         h1 {
             text-align: center; margin: 0 0 15px 0; font-size: 1.8em;
             color: var(--button-color);
@@ -213,7 +217,7 @@
 
         #status {
             font-size: 1.2em; font-weight: 600; text-align: center;
-            padding: 10px; border-radius: 4px; background-color: #333;
+            padding: 10px; border-radius: 4px; background-color: #333; margin-bottom: 10px;
         }
         
         .captured-pieces { min-height: 40px; display: flex; align-items: center; gap: 5px; }
@@ -280,12 +284,19 @@
         </div>
         <div class="info-container">
             <div class="info-panel">
-                <div class="bot-profile">
+                 <div class="bot-profile">
                     <img id="bot-pic" src="" alt="Chess Bot">
-                    <span id="bot-name" class="bot-name"></span>
+                    <div class="bot-info">
+                        <span id="bot-name" class="bot-name"></span>
+                        <span id="bot-rating" class="rating-display"></span>
+                    </div>
                 </div>
                 <h1>Pro Chess</h1>
                 <div id="status">White's Turn</div>
+                <div class="player-profile">
+                    <span class="player-name">Your Rating</span>
+                    <span id="player-rating" class="rating-display"></span>
+                </div>
                 <div class="captured-pieces" id="white-captured"></div>
                 <div class="captured-pieces" id="black-captured"></div>
                 <button id="reset-button">New Game</button>
@@ -343,6 +354,8 @@
         const botSelectElement = document.getElementById('bot-select');
         const botPicElement = document.getElementById('bot-pic');
         const botNameElement = document.getElementById('bot-name');
+        const botRatingElement = document.getElementById('bot-rating');
+        const playerRatingElement = document.getElementById('player-rating');
         const promotionModal = document.getElementById('promotion-modal');
         const promotionChoices = document.getElementById('promotion-choices');
         const gameOverModal = document.getElementById('game-over-modal');
@@ -350,17 +363,17 @@
         const modalNewGameBtn = document.getElementById('modal-new-game-btn');
 
         // --- Game State Variables ---
-        let boardState, selectedSquare, currentPlayer, validMoves, kingPositions, enPassantTarget, castlingRights, moveHistory, capturedPieces, currentBot;
+        let boardState, selectedSquare, currentPlayer, validMoves, kingPositions, enPassantTarget, castlingRights, moveHistory, capturedPieces, currentBot, playerRating, botRatings;
         
         // --- Constants ---
         const pieceUnicode = { 'K': '♔', 'Q': '♕', 'R': '♖', 'B': '♗', 'N': '♘', 'P': '♙', 'k': '♚', 'q': '♛', 'r': '♜', 'b': '♝', 'n': '♞', 'p': '♟' };
         const pieceValues = { 'P': 100, 'N': 320, 'B': 330, 'R': 500, 'Q': 900, 'K': 20000 };
         const bots = {
-            'tal': { name: 'Mikhail Tal', depth: 2, pic: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8c/Mikhail_Tal_1982.jpg/440px-Mikhail_Tal_1982.jpg' },
-            'anand': { name: 'Viswanathan Anand', depth: 3, pic: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3b/Viswanathan_Anand_at_WCC_2014.jpg/440px-Viswanathan_Anand_at_WCC_2014.jpg' },
-            'nakamura': { name: 'Hikaru Nakamura', depth: 3, pic: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/73/Hikaru_Nakamura_at_the_2022_Candidates_Tournament.jpg/440px-Hikaru_Nakamura_at_the_2022_Candidates_Tournament.jpg' },
-            'kasparov': { name: 'Garry Kasparov', depth: 4, pic: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d4/Kasparov_at_the_opening_of_the_2016_Carlsen-Karjakin_match.jpg/440px-Kasparov_at_the_opening_of_the_2016_Carlsen-Karjakin_match.jpg' },
-            'carlsen': { name: 'Magnus Carlsen', depth: 4, pic: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ec/FIDE_World_Chess_Championship_2018_Carlsen_-_Caruana_11.jpg/440px-FIDE_World_Chess_Championship_2018_Carlsen_-_Caruana_11.jpg' }
+            'tal': { name: 'Mikhail Tal', depth: 2, rating: 1600, pic: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8c/Mikhail_Tal_1982.jpg/440px-Mikhail_Tal_1982.jpg' },
+            'anand': { name: 'Viswanathan Anand', depth: 3, rating: 1800, pic: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3b/Viswanathan_Anand_at_WCC_2014.jpg/440px-Viswanathan_Anand_at_WCC_2014.jpg' },
+            'nakamura': { name: 'Hikaru Nakamura', depth: 3, rating: 1800, pic: 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/73/Hikaru_Nakamura_at_the_2022_Candidates_Tournament.jpg/440px-Hikaru_Nakamura_at_the_2022_Candidates_Tournament.jpg' },
+            'kasparov': { name: 'Garry Kasparov', depth: 4, rating: 2000, pic: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d4/Kasparov_at_the_opening_of_the_2016_Carlsen-Karjakin_match.jpg/440px-Kasparov_at_the_opening_of_the_2016_Carlsen-Karjakin_match.jpg' },
+            'carlsen': { name: 'Magnus Carlsen', depth: 4, rating: 2200, pic: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ec/FIDE_World_Chess_Championship_2018_Carlsen_-_Caruana_11.jpg/440px-FIDE_World_Chess_Championship_2018_Carlsen_-_Caruana_11.jpg' }
         };
 
         // --- Piece-Square Tables (Positional Evaluation) ---
@@ -423,6 +436,7 @@
             renderBoard();
             renderCapturedPieces();
             renderMoveHistory();
+            renderRatings();
         }
 
         // --- Rendering Functions ---
@@ -502,6 +516,11 @@
                 moveHistoryList.appendChild(li);
             }
             moveHistoryList.parentElement.scrollTop = moveHistoryList.parentElement.scrollHeight;
+        }
+
+        function renderRatings() {
+            playerRatingElement.textContent = playerRating;
+            botRatingElement.textContent = botRatings[botSelectElement.value];
         }
 
         // --- Event Handlers ---
@@ -809,7 +828,7 @@
             return moves;
         }
 
-        // --- Check/Game Over Logic ---
+        // --- Check/Game Over/Rating Logic ---
         function isKingInCheck(kingColor, board = boardState, kings = kingPositions) {
              const kingPos = kings[kingColor];
              return isSquareUnderAttack(kingPos, getOpponentColor(kingColor), board, kings);
@@ -831,19 +850,66 @@
         }
 
         function isGameOver() {
-            const moves = getAllValidMovesForColor(currentPlayer, boardState);
-            if (moves.length > 0) return false;
-            if (isKingInCheck(currentPlayer)) {
-                 gameOverMessage.textContent = `${getOpponentColor(currentPlayer)} wins by Checkmate!`;
-            } else {
-                 gameOverMessage.textContent = 'Stalemate! It\'s a draw.';
-            }
-            return true;
+            return getAllValidMovesForColor(currentPlayer, boardState).length === 0;
         }
         
-        function handleGameOver() { gameOverModal.classList.remove('hidden'); }
+        function handleGameOver() {
+            let result;
+            let message;
+            if (isKingInCheck(currentPlayer)) {
+                 message = `${getOpponentColor(currentPlayer)} wins by Checkmate!`;
+                 result = (currentPlayer === 'white') ? 'loss' : 'win';
+            } else {
+                 message = 'Stalemate! It\'s a draw.';
+                 result = 'draw';
+            }
+            gameOverMessage.textContent = message;
+            updateRatings(result);
+            renderRatings();
+            gameOverModal.classList.remove('hidden');
+        }
+        
+        function updateRatings(result) {
+            const K = 32;
+            const botId = botSelectElement.value;
+            const opponentRating = botRatings[botId];
+
+            const playerExpected = 1 / (1 + Math.pow(10, (opponentRating - playerRating) / 400));
+            const botExpected = 1 - playerExpected;
+
+            const playerScore = result === 'win' ? 1 : result === 'draw' ? 0.5 : 0;
+            const botScore = 1 - playerScore;
+
+            const newPlayerRating = playerRating + K * (playerScore - playerExpected);
+            const newBotRating = opponentRating + K * (botScore - botExpected);
+
+            playerRating = Math.round(newPlayerRating);
+            botRatings[botId] = Math.round(newBotRating);
+
+            saveRatings();
+        }
 
         // --- Utility, Settings & Theme Functions ---
+        function initializeRatings() {
+            const savedPlayerRating = localStorage.getItem('playerRating');
+            const savedBotRatings = localStorage.getItem('botRatings');
+
+            playerRating = savedPlayerRating ? parseInt(savedPlayerRating, 10) : 1000;
+            botRatings = savedBotRatings ? JSON.parse(savedBotRatings) : {};
+
+            for (const botId in bots) {
+                if (!botRatings[botId]) {
+                    botRatings[botId] = bots[botId].rating;
+                }
+            }
+            saveRatings();
+        }
+
+        function saveRatings() {
+            localStorage.setItem('playerRating', playerRating);
+            localStorage.setItem('botRatings', JSON.stringify(botRatings));
+        }
+
         function applyTheme(theme) {
             document.body.className = theme === 'default' ? '' : `theme-${theme}`;
             localStorage.setItem('chessTheme', theme);
@@ -855,6 +921,7 @@
             botPicElement.alt = currentBot.name;
             botNameElement.textContent = currentBot.name;
             localStorage.setItem('chessBot', botId);
+            renderRatings();
         }
 
         function getAlgebraicNotation(from, to, piece) {
@@ -885,6 +952,7 @@
         botSelectElement.addEventListener('change', (e) => applyBot(e.target.value));
 
         // --- Start Game ---
+        initializeRatings();
         const savedTheme = localStorage.getItem('chessTheme') || 'default';
         themeSelectElement.value = savedTheme;
         applyTheme(savedTheme);
@@ -898,5 +966,4 @@
     </script>
 </body>
 </html>
-
 
