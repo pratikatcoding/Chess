@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chess</title>
+    <title>Professional Chess Bot</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         /* --- THEME DEFINITIONS --- */
@@ -80,8 +80,8 @@
 
         .board-container {
             position: relative;
-            width: clamp(320px, 90vw, 640px); /* Increased max size */
-            height: clamp(320px, 90vw, 640px); /* Increased max size */
+            width: clamp(320px, 90vmin, 640px); /* Use vmin for stable scaling */
+            height: clamp(320px, 90vmin, 640px); /* Use vmin for stable scaling */
         }
 
         #chessboard {
@@ -99,7 +99,7 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            font-size: clamp(28px, 9vw, 56px); /* Adjusted font size for bigger board */
+            font-size: clamp(28px, 9vmin, 56px); /* Use vmin for stable scaling */
             position: relative;
             transition: background-color 0.3s ease;
         }
@@ -898,4 +898,5 @@
     </script>
 </body>
 </html>
+
 
